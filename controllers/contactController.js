@@ -11,10 +11,12 @@ const identifyContact = async (req, res) => {
         // Step 1: Find matching contacts
         const [contacts] = await db.execute(
             `SELECT * FROM contacts 
-             WHERE (email = ? or phoneNumber = ?) AND deletedAt IS NULL`,
+             WHERE (email = ? OR phoneNumber = ?) AND deletedAt IS NULL`,
             [email, phoneNumber]
         );
-        let newlinkedContacts = [...contacts]
+
+        let newlinkedContacts = [...contacts];
+
         if (contacts.length === 0) {
             // No matches found, create a new primary contact
             const [insertResult] = await db.execute(
@@ -34,6 +36,7 @@ const identifyContact = async (req, res) => {
                 },
             });
         }
+
         // Step 2: Determine the primary contact
         const primaryContact = contacts.find(c => c.linkPrecedence === 'primary') 
                              || contacts.reduce((oldest, current) => 
@@ -41,43 +44,50 @@ const identifyContact = async (req, res) => {
                                );
 
         for (const contact of contacts) {
-            if(contact.linkedId!=null){
-                const [primaryContact1] =await db.execute(
-                    `SELECT * FROM contacts 
-                     WHERE (id=?) AND deletedAt IS NULL`,
-                    [contact.linkedId]
-                );
-                newlinkedContacts.push(primaryContact1[0])
-            }
-            else{
-                // Step 3: Fetch all linked contacts
+            if (contact.linkedId != null) {
                 const [primaryContact1] = await db.execute(
                     `SELECT * FROM contacts 
-                     WHERE linkedId = ? or id = ?  AND deletedAt IS NULL`,
+                     WHERE id = ? AND deletedAt IS NULL`,
+                    [contact.linkedId]
+                );
+                newlinkedContacts.push(primaryContact1[0]);
+            } else {
+                // Fetch all linked contacts
+                const [linkedContacts] = await db.execute(
+                    `SELECT * FROM contacts 
+                     WHERE (linkedId = ? OR id = ?) AND deletedAt IS NULL`,
                     [primaryContact.id, primaryContact.id]
                 );
-                newlinkedContacts=[...primaryContact1]
+                newlinkedContacts = [...linkedContacts];
             }
         }
-        
-        console.log(newlinkedContacts)
+
+        // Step 3: Update phoneNumber if it is different from the input
+        if (primaryContact.phoneNumber !== phoneNumber && phoneNumber) {
+            await db.execute(
+                `UPDATE contacts 
+                 SET phoneNumber = ?, updatedAt = NOW() 
+                 WHERE id = ?`,
+                [phoneNumber, primaryContact.id]
+            );
+        }
+
         // Step 4: Link all matching contacts to the primary contact
         for (const contact of contacts) {
             if (contact.id !== primaryContact.id && contact.linkPrecedence === 'primary') {
                 await db.execute(
                     `UPDATE contacts 
-                     SET phoneNumber=? linkedId = ?, linkPrecedence = 'secondary', updatedAt = NOW() 
+                     SET linkedId = ?, linkPrecedence = 'secondary', updatedAt = NOW() 
                      WHERE id = ?`,
-                    [phoneNumber,primaryContact.id, contact.id]
+                    [primaryContact.id, contact.id]
                 );
             }
         }
 
-        
         // Step 5: Consolidate data
         const consolidatedContact = {
             primaryContactId: primaryContact.id,
-            emails: [...new Set(newlinkedContacts.map(contact => contact.email))],
+            emails: [...new Set(newlinkedContacts.map(contact => contact.email).filter(Boolean))],
             phoneNumbers: [...new Set(newlinkedContacts.map(contact => contact.phoneNumber).filter(Boolean))],
             secondaryContactIds: newlinkedContacts
                 .filter(contact => contact.id !== primaryContact.id)
@@ -87,7 +97,7 @@ const identifyContact = async (req, res) => {
         return res.status(200).json({ contact: consolidatedContact });
     } catch (error) {
         console.error("Error identifying contact:", error);
-        res.status(500).json({ error: "Internal Server Error" });
+        return res.status(500).json({ error: "Internal Server Error" });
     }
 };
 
