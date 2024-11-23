@@ -12,14 +12,15 @@ const identifyContact = async (req, res) => {
             'SELECT * FROM contacts WHERE (email = ? OR phoneNumber = ?) AND deletedAt IS NULL',
             [email, phoneNumber]
         );
-        
+
         let newlinkedContacts = [...contacts];
 
         if (contacts.length === 0) {
             // No matches found, create a new primary contact
             const [insertResult] = await db.execute(
-                'INSERT INTO contacts (phoneNumber, email, linkPrecedence, createdAt, updatedAt) VALUES (?, ?, "primary", NOW(), NOW())',
-                [phoneNumber, email]
+
+                `INSERT INTO contacts (phoneNumber, email, linkPrecedence, createdAt, updatedAt) 
+                 VALUES (?, ?, 'primary', NOW(), NOW())`, [phoneNumber, email]
             );
             const newContactId = insertResult.insertId;
 
@@ -34,10 +35,10 @@ const identifyContact = async (req, res) => {
         }
 
         // Step 2: Determine the primary contact
-        const primaryContact = contacts.find(c => c.linkPrecedence === 'primary') 
-                             || contacts.reduce((oldest, current) => 
-                                  (new Date(oldest.createdAt) < new Date(current.createdAt) ? oldest : current)
-                               );
+        const primaryContact = contacts.find(c => c.linkPrecedence === 'primary')
+            || contacts.reduce((oldest, current) =>
+                (new Date(oldest.createdAt) < new Date(current.createdAt) ? oldest : current)
+            );
 
         // Step 3: Fetch all linked contacts
         for (const contact of contacts) {
@@ -62,7 +63,9 @@ const identifyContact = async (req, res) => {
         for (const contact of contacts) {
             if (contact.id !== primaryContact.id && contact.linkPrecedence === 'primary') {
                 await db.execute(
-                    'UPDATE contacts SET linkedId = ?, linkPrecedence = "secondary", updatedAt = NOW() WHERE id = ?',
+                    `UPDATE contacts 
+                    SET linkedId = ?, linkPrecedence = 'secondary', updatedAt = NOW() 
+                    WHERE id = ?`,
                     [primaryContact.id, contact.id]
                 );
             }
