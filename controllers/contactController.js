@@ -1,4 +1,5 @@
 const db = require('../config/db');
+
 const identifyContact = async (req, res) => {
     const { email, phoneNumber } = req.body;
 
@@ -18,9 +19,9 @@ const identifyContact = async (req, res) => {
         if (contacts.length === 0) {
             // No matches found, create a new primary contact
             const [insertResult] = await db.execute(
-
                 `INSERT INTO contacts (phoneNumber, email, linkPrecedence, createdAt, updatedAt) 
-                 VALUES (?, ?, 'primary', NOW(), NOW())`, [phoneNumber, email]
+                 VALUES (?, ?, 'primary', NOW(), NOW())`,
+                [phoneNumber, email]
             );
             const newContactId = insertResult.insertId;
 
@@ -43,6 +44,7 @@ const identifyContact = async (req, res) => {
         // Step 3: Fetch all linked contacts
         for (const contact of contacts) {
             if (contact.linkedId != null) {
+                // Fetch linked contact details
                 const [linkedContact] = await db.execute(
                     'SELECT * FROM contacts WHERE id = ? AND deletedAt IS NULL',
                     [contact.linkedId]
@@ -51,8 +53,9 @@ const identifyContact = async (req, res) => {
                     newlinkedContacts.push(linkedContact[0]);
                 }
             } else {
+                // Fetch all contacts linked to the primary contact
                 const [linkedContacts] = await db.execute(
-                    'SELECT * FROM contacts WHERE linkedId = ? OR id = ? AND deletedAt IS NULL',
+                    'SELECT * FROM contacts WHERE (linkedId = ? OR id = ?) AND deletedAt IS NULL',
                     [primaryContact.id, primaryContact.id]
                 );
                 newlinkedContacts = [...newlinkedContacts, ...linkedContacts];
@@ -72,13 +75,16 @@ const identifyContact = async (req, res) => {
         }
 
         // Step 5: Consolidate data
+        // Sort the newlinkedContacts array by createdAt in ascending order (oldest first)
+        newlinkedContacts.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+        console.log(newlinkedContacts)
         const consolidatedContact = {
             primaryContactId: primaryContact.id,
             emails: [...new Set(newlinkedContacts.map(contact => contact.email))],
             phoneNumbers: [...new Set(newlinkedContacts.map(contact => contact.phoneNumber).filter(Boolean))],
-            secondaryContactIds: newlinkedContacts
+            secondaryContactIds: [...new Set(newlinkedContacts
                 .filter(contact => contact.id !== primaryContact.id)
-                .map(contact => contact.id),
+                .map(contact => contact.id))],
         };
 
         return res.status(200).json({ contact: consolidatedContact });
