@@ -48,9 +48,9 @@ const identifyContact = async (req, res) => {
             if (contact.id !== primaryContact.id && contact.linkPrecedence === 'primary') {
                 await db.execute(
                     `UPDATE contacts 
-                     SET linkedId = ?, linkPrecedence = 'secondary', updatedAt = NOW() 
+                     SET phoneNumber=? linkedId = ?, linkPrecedence = 'secondary', updatedAt = NOW() 
                      WHERE id = ?`,
-                    [primaryContact.id, contact.id]
+                    [phoneNumber,primaryContact.id, contact.id]
                 );
             }
         }
