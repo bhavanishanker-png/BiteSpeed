@@ -14,8 +14,26 @@ const identifyContact = async (req, res) => {
              WHERE (email = ? or phoneNumber = ?) AND deletedAt IS NULL`,
             [email, phoneNumber]
         );
-        console.log(contacts[0].linkedId)
         let newlinkedContacts = [...contacts]
+        if (contacts.length === 0) {
+            // No matches found, create a new primary contact
+            const [insertResult] = await db.execute(
+                `INSERT INTO contacts (phoneNumber, email, linkPrecedence, createdAt, updatedAt) 
+                 VALUES (?, ?, 'primary', NOW(), NOW())`,
+                [phoneNumber, email]
+            );
+
+            const newContactId = insertResult.insertId;
+
+            return res.status(200).json({
+                contact: {
+                    primaryContactId: newContactId,
+                    emails: email ? [email] : [],
+                    phoneNumbers: phoneNumber ? [phoneNumber] : [],
+                    secondaryContactIds: [],
+                },
+            });
+        }
         // Step 2: Determine the primary contact
         const primaryContact = contacts.find(c => c.linkPrecedence === 'primary') 
                              || contacts.reduce((oldest, current) => 
@@ -55,25 +73,7 @@ const identifyContact = async (req, res) => {
             }
         }
 
-        if (contacts.length === 0) {
-            // No matches found, create a new primary contact
-            const [insertResult] = await db.execute(
-                `INSERT INTO contacts (phoneNumber, email, linkPrecedence, createdAt, updatedAt) 
-                 VALUES (?, ?, 'primary', NOW(), NOW())`,
-                [phoneNumber, email]
-            );
-
-            const newContactId = insertResult.insertId;
-
-            return res.status(200).json({
-                contact: {
-                    primaryContactId: newContactId,
-                    emails: email ? [email] : [],
-                    phoneNumbers: phoneNumber ? [phoneNumber] : [],
-                    secondaryContactIds: [],
-                },
-            });
-        }
+        
         // Step 5: Consolidate data
         const consolidatedContact = {
             primaryContactId: primaryContact.id,
