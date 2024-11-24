@@ -41,7 +41,6 @@ const identifyContact = async (req, res) => {
 
         // Step 3: Fetch all linked contacts
         const linkedIds = [...new Set(contacts.map(c => c.linkedId).filter(Boolean))];
-
         if (linkedIds.length > 0) {
             const [linkedContacts] = await db.execute(
                 `SELECT * FROM contacts 
@@ -66,18 +65,19 @@ const identifyContact = async (req, res) => {
 
         // Step 4: Update secondary contacts to point to the primary contact
         const secondaryContactIds = allLinkedContacts
-            .filter(contact => contact.id !== primaryContact.id && contact.linkPrecedence === 'primary')
+            .filter(contact => contact.id !== primaryContact.id && contact.linkPrecedence === 'primary' && contact.id !== primaryContact.linkedId)
             .map(contact => contact.id);
 
         if (secondaryContactIds.length > 0) {
             const placeholders = secondaryContactIds.map(() => '?').join(',');
             await db.execute(
                 `UPDATE contacts 
-                 SET linkedId = ?, linkPrecedence = 'secondary', updatedAt = NOW() 
-                 WHERE id IN (${placeholders})`,
+                     SET linkedId = ?, linkPrecedence = 'secondary', updatedAt = NOW() 
+                     WHERE id IN (${placeholders})`,
                 [primaryContact.id, ...secondaryContactIds]
             );
         }
+
 
         // Step 5: Update all other secondary contacts' `linkedId` to point to the new primary
         if (secondaryContactIds.length > 0) {
