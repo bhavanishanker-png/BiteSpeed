@@ -1,3 +1,4 @@
+
 const db = require('../config/db');
 
 const identifyContact = async (req, res) => {
@@ -13,8 +14,6 @@ const identifyContact = async (req, res) => {
             'SELECT * FROM contacts WHERE (email = ? OR phoneNumber = ?) AND deletedAt IS NULL',
             [email, phoneNumber]
         );
-
-        let newlinkedContacts = [...contacts];
 
         if (contacts.length === 0) {
             // No matches found, create a new primary contact
@@ -42,50 +41,56 @@ const identifyContact = async (req, res) => {
             );
 
         // Step 3: Fetch all linked contacts
-        for (const contact of contacts) {
-            if (contact.linkedId != null) {
-                // Fetch linked contact details
-                const [linkedContact] = await db.execute(
-                    'SELECT * FROM contacts WHERE id = ? AND deletedAt IS NULL',
-                    [contact.linkedId]
-                );
-                if (linkedContact.length > 0) {
-                    newlinkedContacts.push(linkedContact[0]);
-                }
-            } else {
-                // Fetch all contacts linked to the primary contact
-                const [linkedContacts] = await db.execute(
-                    'SELECT * FROM contacts WHERE (linkedId = ? OR id = ?) AND deletedAt IS NULL',
-                    [primaryContact.id, primaryContact.id]
-                );
-                newlinkedContacts = [...newlinkedContacts, ...linkedContacts];
-            }
+        const [linkedContacts] = await db.execute(
+            `SELECT * FROM contacts 
+             WHERE (linkedId = ? OR id = ?) AND deletedAt IS NULL`,
+            [primaryContact.id, primaryContact.id]
+        );
+
+        const allLinkedContacts = [...contacts, ...linkedContacts];
+
+        // Step 4: Update secondary contacts to point to the primary contact
+        const secondaryContactIds = allLinkedContacts
+            .filter(contact => contact.id !== primaryContact.id && contact.linkPrecedence === 'primary')
+            .map(contact => contact.id);
+
+        if (secondaryContactIds.length > 0) {
+            const placeholders = secondaryContactIds.map(() => '?').join(',');
+            await db.execute(
+                `UPDATE contacts 
+                 SET linkedId = ?, linkPrecedence = 'secondary', updatedAt = NOW() 
+                 WHERE id IN (${placeholders})`,
+                [primaryContact.id, ...secondaryContactIds]
+            );
         }
 
-        // Step 4: Link all matching contacts to the primary contact
-        const primarysLinkedIds = []
-        for (const contact of contacts) {
-            if (contact.id !== primaryContact.id && contact.linkPrecedence === 'primary') {
-                primarysLinkedIds.push([contact.email,contact.phoneNumber])
+        // Step 5: Update all other secondary contacts' `linkedId` to point to the new primary
+        if (secondaryContactIds.length > 0) {
+            const placeholders = secondaryContactIds.map(() => '?').join(',');
+            const [additionalLinkedContacts] = await db.execute(
+                `SELECT * FROM contacts 
+                 WHERE linkedId IN (${placeholders}) AND deletedAt IS NULL`,
+                secondaryContactIds
+            );
+
+            const additionalContactIds = additionalLinkedContacts.map(c => c.id);
+            if (additionalContactIds.length > 0) {
+                const additionalPlaceholders = additionalContactIds.map(() => '?').join(',');
                 await db.execute(
                     `UPDATE contacts 
-                    SET linkedId = ?, linkPrecedence = 'secondary', updatedAt = NOW() 
-                    WHERE id = ?`,
-                    [primaryContact.id, contact.id]
+                     SET linkedId = ?, updatedAt = NOW() 
+                     WHERE id IN (${additionalPlaceholders})`,
+                    [primaryContact.id, ...additionalContactIds]
                 );
-
             }
-
         }
-        // console.log(primarysLinkedIds)
-        // Step 5: Consolidate data
-        // Sort the newlinkedContacts array by createdAt in ascending order (oldest first)
-        newlinkedContacts.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+
+        // Step 6: Consolidate data
         const consolidatedContact = {
             primaryContactId: primaryContact.id,
-            emails: [...new Set(newlinkedContacts.map(contact => contact.email))],
-            phoneNumbers: [...new Set(newlinkedContacts.map(contact => contact.phoneNumber).filter(Boolean))],
-            secondaryContactIds: [...new Set(newlinkedContacts
+            emails: [...new Set(allLinkedContacts.map(contact => contact.email).filter(Boolean))],
+            phoneNumbers: [...new Set(allLinkedContacts.map(contact => contact.phoneNumber).filter(Boolean))],
+            secondaryContactIds: [...new Set(allLinkedContacts
                 .filter(contact => contact.id !== primaryContact.id)
                 .map(contact => contact.id))],
         };
