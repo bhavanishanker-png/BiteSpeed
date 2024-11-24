@@ -63,21 +63,24 @@ const identifyContact = async (req, res) => {
         }
 
         // Step 4: Link all matching contacts to the primary contact
+        const primarysLinkedIds = []
         for (const contact of contacts) {
             if (contact.id !== primaryContact.id && contact.linkPrecedence === 'primary') {
+                primarysLinkedIds.push([contact.email,contact.phoneNumber])
                 await db.execute(
                     `UPDATE contacts 
                     SET linkedId = ?, linkPrecedence = 'secondary', updatedAt = NOW() 
                     WHERE id = ?`,
                     [primaryContact.id, contact.id]
                 );
-            }
-        }
 
+            }
+
+        }
+        // console.log(primarysLinkedIds)
         // Step 5: Consolidate data
         // Sort the newlinkedContacts array by createdAt in ascending order (oldest first)
         newlinkedContacts.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
-        console.log(newlinkedContacts)
         const consolidatedContact = {
             primaryContactId: primaryContact.id,
             emails: [...new Set(newlinkedContacts.map(contact => contact.email))],
