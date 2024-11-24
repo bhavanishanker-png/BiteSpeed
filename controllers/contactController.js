@@ -1,4 +1,3 @@
-
 const db = require('../config/db');
 
 const identifyContact = async (req, res) => {
@@ -41,13 +40,29 @@ const identifyContact = async (req, res) => {
             );
 
         // Step 3: Fetch all linked contacts
-        const [linkedContacts] = await db.execute(
+        const linkedIds = [...new Set(contacts.map(c => c.linkedId).filter(Boolean))];
+
+        if (linkedIds.length > 0) {
+            const [linkedContacts] = await db.execute(
+                `SELECT * FROM contacts 
+         WHERE id IN (${linkedIds}) 
+         AND deletedAt IS NULL`,
+                linkedIds
+            );
+            contacts.push(...linkedContacts);
+        }
+        // Fetch contacts linked to the primary contact
+        const [linkedToPrimary] = await db.execute(
             `SELECT * FROM contacts 
-             WHERE (linkedId = ? OR id = ?) AND deletedAt IS NULL`,
+     WHERE (linkedId = ? OR id = ?) AND deletedAt IS NULL`,
             [primaryContact.id, primaryContact.id]
         );
+        contacts.push(...linkedToPrimary);
 
-        const allLinkedContacts = [...contacts, ...linkedContacts];
+        // Step 4: Deduplicate contacts
+        const allLinkedContacts = Array.from(
+            new Map(contacts.map(contact => [contact.id, contact])).values()
+        );
 
         // Step 4: Update secondary contacts to point to the primary contact
         const secondaryContactIds = allLinkedContacts
